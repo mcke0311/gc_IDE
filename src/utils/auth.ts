@@ -10,6 +10,11 @@ import {
   logEvent,
 } from 'src/services/analytics/index.js'
 import { getModelStrings } from 'src/utils/model/modelStrings.js'
+import {
+  getActiveProviderConfig,
+  getConfiguredProviderApiKey,
+  getConfiguredProviderAuthToken,
+} from 'src/utils/model/providerConfig.js'
 import { getAPIProvider } from 'src/utils/model/providers.js'
 import {
   getIsNonInteractiveSession,
@@ -95,6 +100,23 @@ function isManagedOAuthContext(): boolean {
   )
 }
 
+function isGitHubOpenAICompatibleProviderTokenActive(): boolean {
+  const providerType = getActiveProviderConfig().type
+  return (
+    (providerType === 'github-models' || providerType === 'github-copilot') &&
+    !!(getConfiguredProviderAuthToken() || getConfiguredProviderApiKey())
+  )
+}
+
+function isOpenAICompatibleProviderActive(): boolean {
+  const providerType = getActiveProviderConfig().type
+  return (
+    providerType === 'openai-compatible' ||
+    providerType === 'github-models' ||
+    providerType === 'github-copilot'
+  )
+}
+
 /** Whether we are supporting direct 1P auth. */
 // this code is closely related to getAuthTokenSource
 export function isAnthropicAuthEnabled(): boolean {
@@ -112,26 +134,27 @@ export function isAnthropicAuthEnabled(): boolean {
     return !!process.env.CLAUDE_CODE_OAUTH_TOKEN
   }
 
-  const is3P =
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK) ||
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_VERTEX) ||
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_FOUNDRY)
+  const is3P = getAPIProvider() !== 'firstParty'
 
   // Check if user has configured an external API key source
   // This allows externally-provided API keys to work (without requiring proxy configuration)
   const settings = getSettings_DEPRECATED() || {}
   const apiKeyHelper = settings.apiKeyHelper
   const hasExternalAuthToken =
+    getConfiguredProviderAuthToken() ||
     process.env.ANTHROPIC_AUTH_TOKEN ||
     apiKeyHelper ||
     process.env.CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR
+  const configuredProviderApiKey = getConfiguredProviderApiKey()
 
   // Check if API key is from an external source (not managed by /login)
   const { source: apiKeySource } = getAnthropicApiKeyWithSource({
     skipRetrievingKeyFromApiKeyHelper: true,
   })
   const hasExternalApiKey =
-    apiKeySource === 'ANTHROPIC_API_KEY' || apiKeySource === 'apiKeyHelper'
+    apiKeySource === 'ANTHROPIC_API_KEY' ||
+    apiKeySource === 'apiKeyHelper' ||
+    !!configuredProviderApiKey
 
   // Disable Anthropic auth if:
   // 1. Using 3rd party services (Bedrock/Vertex/Foundry)
@@ -141,6 +164,7 @@ export function isAnthropicAuthEnabled(): boolean {
   // e.g. if they want to set X-Api-Key to a gateway key but use Anthropic OAuth for the Authorization
   // if we get reports of that, we should probably add an env var to force OAuth enablement
   const shouldDisableAuth =
+    isGitHubOpenAICompatibleProviderTokenActive() ||
     is3P ||
     (hasExternalAuthToken && !isManagedOAuthContext()) ||
     (hasExternalApiKey && !isManagedOAuthContext())
@@ -161,7 +185,14 @@ export function getAuthTokenSource() {
     return { source: 'none' as const, hasToken: false }
   }
 
-  if (process.env.ANTHROPIC_AUTH_TOKEN && !isManagedOAuthContext()) {
+  if (isOpenAICompatibleProviderActive() && getConfiguredProviderAuthToken()) {
+    return { source: 'providerAuthToken' as const, hasToken: true }
+  }
+
+  if (
+    process.env.ANTHROPIC_AUTH_TOKEN &&
+    !isManagedOAuthContext()
+  ) {
     return { source: 'ANTHROPIC_AUTH_TOKEN' as const, hasToken: true }
   }
 
@@ -229,6 +260,17 @@ export function getAnthropicApiKeyWithSource(
   key: null | string
   source: ApiKeySource
 } {
+  if (isOpenAICompatibleProviderActive()) {
+    const configuredProviderApiKey = getConfiguredProviderApiKey()
+    if (configuredProviderApiKey) {
+      return {
+        key: configuredProviderApiKey,
+        source: 'ANTHROPIC_API_KEY',
+      }
+    }
+    return { key: null, source: 'none' }
+  }
+
   // --bare: hermetic auth. Only ANTHROPIC_API_KEY env or apiKeyHelper from
   // the --settings flag. Never touches keychain, config file, or approval
   // lists. 3P (Bedrock/Vertex/Foundry) uses provider creds, not this path.
@@ -333,6 +375,14 @@ export function getAnthropicApiKeyWithSource(
     return {
       key: getApiKeyFromApiKeyHelperCached(),
       source: 'apiKeyHelper',
+    }
+  }
+
+  const configuredProviderApiKey = getConfiguredProviderApiKey()
+  if (configuredProviderApiKey) {
+    return {
+      key: configuredProviderApiKey,
+      source: 'ANTHROPIC_API_KEY',
     }
   }
 

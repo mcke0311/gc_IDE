@@ -1,6 +1,7 @@
 import Anthropic, { type ClientOptions } from '@anthropic-ai/sdk'
 import { randomUUID } from 'crypto'
 import type { GoogleAuth } from 'google-auth-library'
+import { createOpenAICompatibleClient } from 'src/services/api/openaiCompatibleClient.js'
 import {
   checkAndRefreshOAuthTokenIfNeeded,
   getAnthropicApiKey,
@@ -11,6 +12,12 @@ import {
   refreshGcpCredentialsIfNeeded,
 } from 'src/utils/auth.js'
 import { getUserAgent } from 'src/utils/http.js'
+import {
+  getActiveProviderConfig,
+  getConfiguredAnthropicBaseUrl,
+  getConfiguredProviderApiKey,
+  getConfiguredProviderAuthToken,
+} from 'src/utils/model/providerConfig.js'
 import { getSmallFastModel } from 'src/utils/model/model.js'
 import {
   getAPIProvider,
@@ -85,6 +92,14 @@ function createStderrLogger(): ClientOptions['logger'] {
   }
 }
 
+function isOpenAICompatibleProviderType(providerType: string | undefined): boolean {
+  return (
+    providerType === 'openai-compatible' ||
+    providerType === 'github-models' ||
+    providerType === 'github-copilot'
+  )
+}
+
 export async function getAnthropicClient({
   apiKey,
   maxRetries,
@@ -98,6 +113,11 @@ export async function getAnthropicClient({
   fetchOverride?: ClientOptions['fetch']
   source?: string
 }): Promise<Anthropic> {
+  const apiProvider = getAPIProvider()
+  const activeProvider = getActiveProviderConfig()
+  const isOpenAICompatibleProvider = isOpenAICompatibleProviderType(
+    activeProvider.type,
+  )
   const containerId = process.env.CLAUDE_CODE_CONTAINER_ID
   const remoteSessionId = process.env.CLAUDE_CODE_REMOTE_SESSION_ID
   const clientApp = process.env.CLAUDE_AGENT_SDK_CLIENT_APP
@@ -144,13 +164,32 @@ export async function getAnthropicClient({
     timeout: parseInt(process.env.API_TIMEOUT_MS || String(600 * 1000), 10),
     dangerouslyAllowBrowser: true,
     fetchOptions: getProxyFetchOptions({
-      forAnthropicAPI: true,
+      forAnthropicAPI: !isOpenAICompatibleProvider,
     }) as ClientOptions['fetchOptions'],
     ...(resolvedFetch && {
       fetch: resolvedFetch,
     }),
   }
-  if (isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK)) {
+  if (isOpenAICompatibleProvider) {
+    const authToken =
+      getConfiguredProviderAuthToken() || apiKey || getConfiguredProviderApiKey()
+
+    return createOpenAICompatibleClient({
+      providerType: activeProvider.type,
+      baseURL: activeProvider.baseURL,
+      apiKey: authToken,
+      authToken,
+      defaultHeaders,
+      maxRetries,
+      timeout: ARGS.timeout,
+      dangerouslyAllowBrowser: ARGS.dangerouslyAllowBrowser,
+      fetchOptions: ARGS.fetchOptions,
+      ...(resolvedFetch && {
+        fetch: resolvedFetch,
+      }),
+    } as any) as Anthropic
+  }
+  if (apiProvider === 'bedrock') {
     const { AnthropicBedrock } = await import('@anthropic-ai/bedrock-sdk')
     // Use region override for small fast model if specified
     const awsRegion =
@@ -188,7 +227,7 @@ export async function getAnthropicClient({
     // we have always been lying about the return type - this doesn't support batching or models
     return new AnthropicBedrock(bedrockArgs) as unknown as Anthropic
   }
-  if (isEnvTruthy(process.env.CLAUDE_CODE_USE_FOUNDRY)) {
+  if (apiProvider === 'foundry') {
     const { AnthropicFoundry } = await import('@anthropic-ai/foundry-sdk')
     // Determine Azure AD token provider based on configuration
     // SDK reads ANTHROPIC_FOUNDRY_API_KEY by default
@@ -218,7 +257,7 @@ export async function getAnthropicClient({
     // we have always been lying about the return type - this doesn't support batching or models
     return new AnthropicFoundry(foundryArgs) as unknown as Anthropic
   }
-  if (isEnvTruthy(process.env.CLAUDE_CODE_USE_VERTEX)) {
+  if (apiProvider === 'vertex') {
     // Refresh GCP credentials if gcpAuthRefresh is configured and credentials are expired
     // This is similar to how we handle AWS credential refresh for Bedrock
     if (!isEnvTruthy(process.env.CLAUDE_CODE_SKIP_VERTEX_AUTH)) {
@@ -298,8 +337,11 @@ export async function getAnthropicClient({
   }
 
   // Determine authentication method based on available tokens
+  const configuredBaseUrl = getConfiguredAnthropicBaseUrl()
   const clientConfig: ConstructorParameters<typeof Anthropic>[0] = {
-    apiKey: isClaudeAISubscriber() ? null : apiKey || getAnthropicApiKey(),
+    apiKey: isClaudeAISubscriber()
+      ? null
+      : apiKey || getAnthropicApiKey() || getConfiguredProviderApiKey(),
     authToken: isClaudeAISubscriber()
       ? getClaudeAIOAuthTokens()?.accessToken
       : undefined,
@@ -308,6 +350,7 @@ export async function getAnthropicClient({
     isEnvTruthy(process.env.USE_STAGING_OAUTH)
       ? { baseURL: getOauthConfig().BASE_API_URL }
       : {}),
+    ...(configuredBaseUrl ? { baseURL: configuredBaseUrl } : {}),
     ...ARGS,
     ...(isDebugToStdErr() && { logger: createStderrLogger() }),
   }
@@ -319,7 +362,12 @@ async function configureApiKeyHeaders(
   headers: Record<string, string>,
   isNonInteractiveSession: boolean,
 ): Promise<void> {
+  const activeProvider = getActiveProviderConfig()
   const token =
+    getConfiguredProviderAuthToken() ||
+    (isOpenAICompatibleProviderType(activeProvider.type)
+      ? getConfiguredProviderApiKey()
+      : undefined) ||
     process.env.ANTHROPIC_AUTH_TOKEN ||
     (await getApiKeyFromApiKeyHelper(isNonInteractiveSession))
   if (token) {

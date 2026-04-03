@@ -24,7 +24,12 @@
  */
 
 import { getOauthConfig } from '../constants/oauth.js'
-import { isEnvTruthy } from './envUtils.js'
+import {
+  getActiveProviderType,
+  getConfiguredAnthropicBaseUrl,
+  isOpenAICompatibleProviderType,
+} from './model/providerConfig.js'
+import { getAPIProvider } from './model/providers.js'
 
 let fired = false
 
@@ -34,9 +39,8 @@ export function preconnectAnthropicApi(): void {
 
   // Skip if using a cloud provider — different endpoint + auth
   if (
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_BEDROCK) ||
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_VERTEX) ||
-    isEnvTruthy(process.env.CLAUDE_CODE_USE_FOUNDRY)
+    getAPIProvider() !== 'firstParty' ||
+    isOpenAICompatibleProviderType(getActiveProviderType())
   ) {
     return
   }
@@ -54,10 +58,9 @@ export function preconnectAnthropicApi(): void {
   }
 
   // Use configured base URL (staging, local, or custom gateway). Covers
-  // ANTHROPIC_BASE_URL env + USE_STAGING_OAUTH + USE_LOCAL_OAUTH in one lookup.
+  // provider-configured gateways plus env/staging/local Anthropic endpoints.
   // NODE_EXTRA_CA_CERTS no longer a skip — init.ts applied it before this fires.
-  const baseUrl =
-    process.env.ANTHROPIC_BASE_URL || getOauthConfig().BASE_API_URL
+  const baseUrl = getConfiguredAnthropicBaseUrl() || getOauthConfig().BASE_API_URL
 
   // Fire and forget. HEAD means no response body — the connection is eligible
   // for keep-alive pool reuse immediately after headers arrive. 10s timeout

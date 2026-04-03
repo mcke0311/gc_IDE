@@ -32,6 +32,7 @@ import {
 } from './model.js'
 import { has1mContext } from '../context.js'
 import { getGlobalConfig } from '../config.js'
+import { getConfiguredCustomModels } from './providerConfig.js'
 
 // @[MODEL LAUNCH]: Update all the available and default model option strings below.
 
@@ -40,6 +41,40 @@ export type ModelOption = {
   label: string
   description: string
   descriptionForModel?: string
+}
+
+function getConfiguredCustomModelOptions(): ModelOption[] {
+  const configuredModels = getConfiguredCustomModels() as unknown[] | undefined
+  if (!configuredModels?.length) {
+    return []
+  }
+
+  return configuredModels.flatMap(model => {
+    if (typeof model === 'string' && model.length > 0) {
+      return [{ value: model, label: model, description: 'Custom model' }]
+    }
+
+    if (!model || typeof model !== 'object') {
+      return []
+    }
+
+    const config = model as Record<string, unknown>
+    const value = config.model ?? config.value ?? config.id ?? config.name
+    if (typeof value !== 'string' || value.length === 0) {
+      return []
+    }
+
+    const label =
+      typeof config.label === 'string' && config.label.length > 0
+        ? config.label
+        : value
+    const description =
+      typeof config.description === 'string' && config.description.length > 0
+        ? config.description
+        : 'Custom model'
+
+    return [{ value, label, description }]
+  })
 }
 
 export function getDefaultOptionForUser(fastMode = false): ModelOption {
@@ -66,10 +101,11 @@ export function getDefaultOptionForUser(fastMode = false): ModelOption {
 
   // PAYG
   const is3P = getAPIProvider() !== 'firstParty'
+  const hasConfiguredCustomModels = getConfiguredCustomModelOptions().length > 0
   return {
     value: null,
     label: 'Default (recommended)',
-    description: `Use the default model (currently ${renderDefaultModelSetting(getDefaultMainLoopModelSetting())})${is3P ? '' : ` · ${formatModelPricing(COST_TIER_3_15)}`}`,
+    description: `Use the default model (currently ${renderDefaultModelSetting(getDefaultMainLoopModelSetting())})${is3P || hasConfiguredCustomModels ? '' : ` · ${formatModelPricing(COST_TIER_3_15)}`}`,
   }
 }
 
@@ -325,6 +361,11 @@ function getModelOptionsBase(fastMode = false): ModelOption[] {
 
   // PAYG 1P API: Default (Sonnet) + Sonnet 1M + Opus 4.6 + Opus 1M + Haiku
   if (getAPIProvider() === 'firstParty') {
+    const configuredCustomModels = getConfiguredCustomModelOptions()
+    if (configuredCustomModels.length > 0) {
+      return [getDefaultOptionForUser(fastMode), ...configuredCustomModels]
+    }
+
     const payg1POptions = [getDefaultOptionForUser(fastMode)]
     if (checkSonnet1mAccess()) {
       payg1POptions.push(getSonnet46_1MOption())
@@ -460,6 +501,7 @@ function getKnownModelOption(model: string): ModelOption | null {
 
 export function getModelOptions(fastMode = false): ModelOption[] {
   const options = getModelOptionsBase(fastMode)
+  const hasConfiguredCustomModels = getConfiguredCustomModelOptions().length > 0
 
   // Add the custom model from the ANTHROPIC_CUSTOM_MODEL_OPTION env var
   const envCustomModel = process.env.ANTHROPIC_CUSTOM_MODEL_OPTION
@@ -492,6 +534,16 @@ export function getModelOptions(fastMode = false): ModelOption[] {
     customModel = currentMainLoopModel
   } else if (initialMainLoopModel !== null) {
     customModel = initialMainLoopModel
+  }
+  if (hasConfiguredCustomModels) {
+    if (customModel !== null && !options.some(opt => opt.value === customModel)) {
+      options.push({
+        value: customModel,
+        label: customModel,
+        description: 'Current model',
+      })
+    }
+    return filterModelOptionsByAllowlist(options)
   }
   if (customModel === null || options.some(opt => opt.value === customModel)) {
     return filterModelOptionsByAllowlist(options)

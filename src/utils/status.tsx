@@ -11,6 +11,7 @@ import { getDisplayPath } from './file.js';
 import { formatNumber } from './format.js';
 import { getIdeClientName, type IDEExtensionInstallationStatus, isJetBrainsIde, toIDEDisplayName } from './ide.js';
 import { getClaudeAiUserDefaultModelDescription, modelDisplayString } from './model/model.js';
+import { getActiveProviderConfig, getConfiguredAnthropicBaseUrl, getProviderDisplayName } from './model/providerConfig.js';
 import { getAPIProvider } from './model/providers.js';
 import { getMTLSConfig } from './mtls.js';
 import { checkInstall } from './nativeInstaller/index.js';
@@ -210,9 +211,12 @@ export function buildAccountProperties(): Property[] {
     });
   }
   if (accountInfo.tokenSource) {
+    const tokenSource = accountInfo.tokenSource === 'providerAuthToken'
+      ? `${getProviderDisplayName()} token`
+      : accountInfo.tokenSource;
     properties.push({
       label: 'Auth token',
-      value: accountInfo.tokenSource
+      value: tokenSource
     });
   }
   if (accountInfo.apiKeySource) {
@@ -239,6 +243,9 @@ export function buildAccountProperties(): Property[] {
 }
 export function buildAPIProviderProperties(): Property[] {
   const apiProvider = getAPIProvider();
+  const activeProvider = getActiveProviderConfig();
+  const providerDisplayName = getProviderDisplayName();
+  const configuredAnthropicBaseUrl = getConfiguredAnthropicBaseUrl();
   const properties: Property[] = [];
   if (apiProvider !== 'firstParty') {
     const providerLabel = {
@@ -248,19 +255,24 @@ export function buildAPIProviderProperties(): Property[] {
     }[apiProvider];
     properties.push({
       label: 'API provider',
-      value: providerLabel
+      value: providerDisplayName || providerLabel
+    });
+  } else if (providerDisplayName && providerDisplayName !== 'Anthropic') {
+    properties.push({
+      label: 'API provider',
+      value: providerDisplayName
     });
   }
   if (apiProvider === 'firstParty') {
-    const anthropicBaseUrl = process.env.ANTHROPIC_BASE_URL;
+    const anthropicBaseUrl = configuredAnthropicBaseUrl ?? (providerDisplayName !== 'Anthropic' ? activeProvider.baseURL : undefined);
     if (anthropicBaseUrl) {
       properties.push({
-        label: 'Anthropic base URL',
+        label: providerDisplayName !== 'Anthropic' ? 'Provider base URL' : 'Anthropic base URL',
         value: anthropicBaseUrl
       });
     }
   } else if (apiProvider === 'bedrock') {
-    const bedrockBaseUrl = process.env.BEDROCK_BASE_URL;
+    const bedrockBaseUrl = activeProvider.baseURL ?? process.env.ANTHROPIC_BEDROCK_BASE_URL ?? process.env.BEDROCK_BASE_URL;
     if (bedrockBaseUrl) {
       properties.push({
         label: 'Bedrock base URL',
@@ -269,7 +281,7 @@ export function buildAPIProviderProperties(): Property[] {
     }
     properties.push({
       label: 'AWS region',
-      value: getAWSRegion()
+      value: activeProvider.region ?? getAWSRegion()
     });
     if (isEnvTruthy(process.env.CLAUDE_CODE_SKIP_BEDROCK_AUTH)) {
       properties.push({
@@ -277,14 +289,14 @@ export function buildAPIProviderProperties(): Property[] {
       });
     }
   } else if (apiProvider === 'vertex') {
-    const vertexBaseUrl = process.env.VERTEX_BASE_URL;
+    const vertexBaseUrl = activeProvider.baseURL ?? process.env.ANTHROPIC_VERTEX_BASE_URL ?? process.env.VERTEX_BASE_URL;
     if (vertexBaseUrl) {
       properties.push({
         label: 'Vertex base URL',
         value: vertexBaseUrl
       });
     }
-    const gcpProject = process.env.ANTHROPIC_VERTEX_PROJECT_ID;
+    const gcpProject = activeProvider.projectId ?? process.env.ANTHROPIC_VERTEX_PROJECT_ID;
     if (gcpProject) {
       properties.push({
         label: 'GCP project',
@@ -293,7 +305,7 @@ export function buildAPIProviderProperties(): Property[] {
     }
     properties.push({
       label: 'Default region',
-      value: getDefaultVertexRegion()
+      value: activeProvider.region ?? getDefaultVertexRegion()
     });
     if (isEnvTruthy(process.env.CLAUDE_CODE_SKIP_VERTEX_AUTH)) {
       properties.push({
@@ -301,14 +313,14 @@ export function buildAPIProviderProperties(): Property[] {
       });
     }
   } else if (apiProvider === 'foundry') {
-    const foundryBaseUrl = process.env.ANTHROPIC_FOUNDRY_BASE_URL;
+    const foundryBaseUrl = activeProvider.baseURL ?? process.env.ANTHROPIC_FOUNDRY_BASE_URL;
     if (foundryBaseUrl) {
       properties.push({
         label: 'Microsoft Foundry base URL',
         value: foundryBaseUrl
       });
     }
-    const foundryResource = process.env.ANTHROPIC_FOUNDRY_RESOURCE;
+    const foundryResource = activeProvider.resource ?? process.env.ANTHROPIC_FOUNDRY_RESOURCE;
     if (foundryResource) {
       properties.push({
         label: 'Microsoft Foundry resource',

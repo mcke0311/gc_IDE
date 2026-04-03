@@ -11,9 +11,17 @@ import {
 } from '../../bootstrap/state.js'
 import { quote } from '../bash/shellQuote.js'
 import { isInBundledMode } from '../bundledMode.js'
+import { getConfiguredProviderSecretEnvNames } from '../model/providerConfig.js'
 import type { PermissionMode } from '../permissions/PermissionMode.js'
 import { getTeammateModeFromSnapshot } from './backends/teammateModeSnapshot.js'
 import { TEAMMATE_COMMAND_ENV_VAR } from './constants.js'
+
+const GITHUB_PROVIDER_SECRET_ENVS = [
+  'GITHUB_MODELS_TOKEN',
+  'GITHUB_MODELS_API_KEY',
+  'GITHUB_COPILOT_TOKEN',
+  'GITHUB_COPILOT_API_KEY',
+] as const
 
 /**
  * Gets the command to use for spawning teammate processes.
@@ -136,6 +144,16 @@ export function buildInheritedEnvVars(): string {
   const envVars = ['CLAUDECODE=1', 'CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1']
 
   for (const key of TEAMMATE_ENV_VARS) {
+    const value = process.env[key]
+    if (value !== undefined && value !== '') {
+      envVars.push(`${key}=${quote([value])}`)
+    }
+  }
+
+  for (const key of new Set([
+    ...getConfiguredProviderSecretEnvNames(),
+    ...GITHUB_PROVIDER_SECRET_ENVS,
+  ])) {
     const value = process.env[key]
     if (value !== undefined && value !== '') {
       envVars.push(`${key}=${quote([value])}`)

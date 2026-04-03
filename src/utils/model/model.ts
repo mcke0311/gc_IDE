@@ -28,13 +28,30 @@ import { LIGHTNING_BOLT } from '../../constants/figures.js'
 import { isModelAllowed } from './modelAllowlist.js'
 import { type ModelAlias, isModelAlias } from './aliases.js'
 import { capitalize } from '../stringUtils.js'
+import { getActiveProviderConfig } from './providerConfig.js'
 
 export type ModelShortName = string
 export type ModelName = string
 export type ModelSetting = ModelName | ModelAlias | null
 
+function getConfiguredProviderModel(
+  key: 'defaultModel' | 'smallFastModel',
+): string | undefined {
+  const providerConfig = getActiveProviderConfig() as
+    | Record<string, unknown>
+    | undefined
+  const configuredModel = providerConfig?.[key]
+  return typeof configuredModel === 'string' && configuredModel.length > 0
+    ? configuredModel
+    : undefined
+}
+
 export function getSmallFastModel(): ModelName {
-  return process.env.ANTHROPIC_SMALL_FAST_MODEL || getDefaultHaikuModel()
+  return (
+    process.env.ANTHROPIC_SMALL_FAST_MODEL ||
+    getConfiguredProviderModel('smallFastModel') ||
+    getDefaultHaikuModel()
+  )
 }
 
 export function isNonCustomOpusModel(model: ModelName): boolean {
@@ -182,6 +199,11 @@ export function getDefaultMainLoopModelSetting(): ModelName | ModelAlias {
       getAntModelOverrideConfig()?.defaultModel ??
       getDefaultOpusModel() + '[1m]'
     )
+  }
+
+  const configuredDefaultModel = getConfiguredProviderModel('defaultModel')
+  if (configuredDefaultModel) {
+    return configuredDefaultModel
   }
 
   // Max users get Opus as default

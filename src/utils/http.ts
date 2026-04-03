@@ -10,8 +10,20 @@ import {
   handleOAuth401Error,
   isClaudeAISubscriber,
 } from './auth.js'
+import {
+  getActiveProviderConfig,
+  getConfiguredProviderAuthToken,
+} from './model/providerConfig.js'
 import { getClaudeCodeUserAgent } from './userAgent.js'
 import { getWorkload } from './workloadContext.js'
+
+function isOpenAICompatibleProviderType(providerType: string | undefined): boolean {
+  return (
+    providerType === 'openai-compatible' ||
+    providerType === 'github-models' ||
+    providerType === 'github-copilot'
+  )
+}
 
 // WARNING: We rely on `claude-cli` in the user agent for log filtering.
 // Please do NOT change this without making sure that logging also gets updated!
@@ -85,6 +97,22 @@ export function getAuthHeaders(): AuthHeaders {
   // TODO: this will fail if the API key is being set to an LLM Gateway key
   // should we try to query keychain / credentials for a valid Anthropic key?
   const apiKey = getAnthropicApiKey()
+  const authToken = getConfiguredProviderAuthToken()
+  const providerType = getActiveProviderConfig().type
+  if (authToken && !isOpenAICompatibleProviderType(providerType)) {
+    return {
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+      },
+    }
+  }
+  if (apiKey && isOpenAICompatibleProviderType(providerType)) {
+    return {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+    }
+  }
   if (!apiKey) {
     return {
       headers: {},

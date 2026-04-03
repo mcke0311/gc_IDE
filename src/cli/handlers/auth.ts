@@ -36,6 +36,10 @@ import { isRunningOnHomespace } from '../../utils/envUtils.js'
 import { errorMessage } from '../../utils/errors.js'
 import { logError } from '../../utils/log.js'
 import { getAPIProvider } from '../../utils/model/providers.js'
+import {
+  getActiveProviderConfig,
+  getProviderDisplayName,
+} from '../../utils/model/providerConfig.js'
 import { getInitialSettings } from '../../utils/settings/settings.js'
 import { jsonStringify } from '../../utils/slowOperations.js'
 import {
@@ -249,6 +253,8 @@ export async function authStatus(opts: {
     authMethod = 'third_party'
   } else if (authTokenSource === 'claude.ai') {
     authMethod = 'claude.ai'
+  } else if (authTokenSource === 'providerAuthToken') {
+    authMethod = 'provider_token'
   } else if (authTokenSource === 'apiKeyHelper') {
     authMethod = 'api_key_helper'
   } else if (authTokenSource !== 'none') {
@@ -292,6 +298,8 @@ export async function authStatus(opts: {
     }
   } else {
     const apiProvider = getAPIProvider()
+    const activeProvider = getActiveProviderConfig()
+    const providerName = getProviderDisplayName()
     const resolvedApiKeySource =
       apiKeySource !== 'none'
         ? apiKeySource
@@ -302,6 +310,10 @@ export async function authStatus(opts: {
       loggedIn,
       authMethod,
       apiProvider,
+    }
+    if (activeProvider.id !== apiProvider || providerName !== 'Anthropic') {
+      output.providerId = activeProvider.id
+      output.providerName = providerName
     }
     if (resolvedApiKeySource) {
       output.apiKeySource = resolvedApiKeySource

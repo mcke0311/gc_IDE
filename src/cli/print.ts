@@ -1217,7 +1217,12 @@ function runHeadlessStreaming(
       ...(hasAutoMode && { supportsAutoMode: true }),
     }
   })
-  let activeUserSpecifiedModel = options.userSpecifiedModel
+  let activeUserSpecifiedModel =
+    options.userSpecifiedModel ?? getDefaultMainLoopModel()
+
+  if (!options.userSpecifiedModel) {
+    setMainLoopModelOverride(activeUserSpecifiedModel)
+  }
 
   function injectModelSwitchBreadcrumbs(
     modelArg: string,

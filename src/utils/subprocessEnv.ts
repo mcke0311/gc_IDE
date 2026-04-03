@@ -1,4 +1,12 @@
 import { isEnvTruthy } from './envUtils.js'
+import { getConfiguredProviderSecretEnvNames } from './model/providerConfig.js'
+
+const GITHUB_PROVIDER_SECRET_ENVS = [
+  'GITHUB_MODELS_TOKEN',
+  'GITHUB_MODELS_API_KEY',
+  'GITHUB_COPILOT_TOKEN',
+  'GITHUB_COPILOT_API_KEY',
+] as const
 
 /**
  * Env vars to strip from subprocess environments when running inside GitHub
@@ -89,7 +97,11 @@ export function subprocessEnv(): NodeJS.ProcessEnv {
       : process.env
   }
   const env = { ...process.env, ...proxyEnv }
-  for (const k of GHA_SUBPROCESS_SCRUB) {
+  for (const k of new Set([
+    ...GHA_SUBPROCESS_SCRUB,
+    ...GITHUB_PROVIDER_SECRET_ENVS,
+    ...getConfiguredProviderSecretEnvNames(),
+  ])) {
     delete env[k]
     // GitHub Actions auto-creates INPUT_<NAME> for `with:` inputs, duplicating
     // secrets like INPUT_ANTHROPIC_API_KEY. No-op for vars that aren't action inputs.

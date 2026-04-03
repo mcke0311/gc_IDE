@@ -195,6 +195,12 @@ export function getModelMaxOutputTokens(model: string): {
   } else if (m.includes('3-7-sonnet')) {
     defaultTokens = 32_000
     upperLimit = 64_000
+  } else if (m.includes('gpt-4.1')) {
+    defaultTokens = 32_768
+    upperLimit = 32_768
+  } else if (m.includes('gpt-4o')) {
+    defaultTokens = 16_384
+    upperLimit = 16_384
   } else {
     defaultTokens = MAX_OUTPUT_TOKENS_DEFAULT
     upperLimit = MAX_OUTPUT_TOKENS_UPPER_LIMIT

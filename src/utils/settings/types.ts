@@ -108,6 +108,35 @@ export const ExtraKnownMarketplaceSchema = lazySchema(() =>
   }),
 )
 
+export const ProviderTypeSchema = lazySchema(() =>
+  z.enum([
+    'firstParty',
+    'bedrock',
+    'vertex',
+    'foundry',
+    'anthropic-compatible',
+    'openai-compatible',
+    'github-models',
+    'github-copilot',
+  ]),
+)
+
+export const ProviderConfigSchema = lazySchema(() =>
+  z.object({
+    type: ProviderTypeSchema().optional(),
+    name: z.string().optional(),
+    baseURL: z.string().optional(),
+    apiKeyEnv: z.string().optional(),
+    authTokenEnv: z.string().optional(),
+    defaultModel: z.string().optional(),
+    models: z.array(z.string()).optional(),
+    smallFastModel: z.string().optional(),
+    region: z.string().optional(),
+    projectId: z.string().optional(),
+    resource: z.string().optional(),
+  }),
+)
+
 /**
  * Schema for allowed MCP server entry in enterprise allowlist.
  * Supports matching by serverName, serverCommand, or serverUrl (mutually exclusive).
@@ -376,6 +405,14 @@ export const SettingsSchema = lazySchema(() =>
         .string()
         .optional()
         .describe('Override the default model used by Claude Code'),
+      provider: z
+        .string()
+        .optional()
+        .describe('Select the active model provider by ID'),
+      providers: z
+        .record(z.string(), ProviderConfigSchema())
+        .optional()
+        .describe('Provider configurations keyed by provider ID'),
       // Enterprise allowlist of models
       availableModels: z
         .array(z.string())
@@ -1101,6 +1138,7 @@ export type AllowedMcpServerEntry = z.infer<
 export type DeniedMcpServerEntry = z.infer<
   ReturnType<typeof DeniedMcpServerEntrySchema>
 >
+export type ProviderConfig = z.infer<ReturnType<typeof ProviderConfigSchema>>
 export type SettingsJson = z.infer<ReturnType<typeof SettingsSchema>>
 
 /**
